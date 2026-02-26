@@ -264,6 +264,7 @@ tabs = st.tabs([
     "🔭 Explorar Dataset",
     "📊 Métricas de Desempeño",
     "🔮 Predicción en Vivo",
+    "✏️ Dibujar Dígito",
     "🏆 Comparar Modelos",
     "📖 Acerca del Modelo",
 ])
@@ -491,8 +492,186 @@ with tabs[2]:
             st.info("Este modelo no entrega probabilidades. Usa SVM con probability=True o KNN/RF.")
 
 
-# ═══════════════ TAB 4 — COMPARAR MODELOS ═══════════════
+# ═══════════════ TAB 4 — DIBUJAR DÍGITO ═══════════════
 with tabs[3]:
+    st.markdown('<p class="sec-header">✏️ Dibuja tu propio dígito</p>', unsafe_allow_html=True)
+    st.markdown('<div class="info-card">Dibuja un dígito del <b>0 al 9</b> en el canvas. El modelo lo procesará y predecirá en tiempo real. Para mejores resultados dibuja el número <b>grande y centrado</b>.</div>', unsafe_allow_html=True)
+
+    col_draw, col_pred = st.columns([1, 1])
+
+    with col_draw:
+        st.markdown("#### Canvas de dibujo")
+
+        # Canvas HTML nativo vía componente iframe
+        canvas_html = """
+        <style>
+          #canvas-wrap { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+          #drawCanvas {
+            background: #000;
+            border: 2px solid #7c3aed;
+            border-radius: 12px;
+            cursor: crosshair;
+            touch-action: none;
+          }
+          .btn-row { display: flex; gap: 10px; }
+          .btn {
+            padding: 8px 22px; border: none; border-radius: 8px;
+            font-size: 14px; font-weight: 600; cursor: pointer;
+          }
+          #clearBtn  { background: #f87171; color: #fff; }
+          #submitBtn { background: #00d4ff; color: #0d0f14; }
+          #result-box {
+            margin-top: 10px;
+            background: #0f1520;
+            border: 1px solid #2d3450;
+            border-radius: 10px;
+            padding: 10px 18px;
+            color: #c8ccdc;
+            font-family: monospace;
+            font-size: 13px;
+            min-height: 36px;
+            text-align: center;
+          }
+        </style>
+        <div id="canvas-wrap">
+          <canvas id="drawCanvas" width="280" height="280"></canvas>
+          <div class="btn-row">
+            <button class="btn" id="clearBtn" onclick="clearCanvas()">🗑️ Limpiar</button>
+            <button class="btn" id="submitBtn" onclick="submitCanvas()">🔍 Analizar</button>
+          </div>
+          <div id="result-box">Dibuja un dígito y presiona Analizar ↑</div>
+        </div>
+
+        <script>
+          const canvas = document.getElementById('drawCanvas');
+          const ctx = canvas.getContext('2d');
+          let drawing = false;
+
+          ctx.lineWidth = 22;
+          ctx.lineCap = 'round';
+          ctx.strokeStyle = '#ffffff';
+          ctx.fillStyle = '#000000';
+          ctx.fillRect(0, 0, 280, 280);
+
+          function getPos(e) {
+            const r = canvas.getBoundingClientRect();
+            if (e.touches) {
+              return { x: e.touches[0].clientX - r.left, y: e.touches[0].clientY - r.top };
+            }
+            return { x: e.clientX - r.left, y: e.clientY - r.top };
+          }
+
+          canvas.addEventListener('mousedown',  e => { drawing = true; ctx.beginPath(); const p = getPos(e); ctx.moveTo(p.x, p.y); });
+          canvas.addEventListener('mousemove',  e => { if (!drawing) return; const p = getPos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); });
+          canvas.addEventListener('mouseup',    () => drawing = false);
+          canvas.addEventListener('mouseleave', () => drawing = false);
+          canvas.addEventListener('touchstart', e => { e.preventDefault(); drawing = true; ctx.beginPath(); const p = getPos(e); ctx.moveTo(p.x, p.y); }, {passive:false});
+          canvas.addEventListener('touchmove',  e => { e.preventDefault(); if (!drawing) return; const p = getPos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); }, {passive:false});
+          canvas.addEventListener('touchend',   () => drawing = false);
+
+          function clearCanvas() {
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, 280, 280);
+            document.getElementById('result-box').innerText = 'Dibuja un dígito y presiona Analizar ↑';
+            // Notificar limpieza
+            window.parent.postMessage({type: 'canvas_clear'}, '*');
+          }
+
+          function submitCanvas() {
+            const dataURL = canvas.toDataURL('image/png');
+            document.getElementById('result-box').innerText = '⏳ Procesando...';
+            window.parent.postMessage({type: 'canvas_data', data: dataURL}, '*');
+          }
+        </script>
+        """
+
+        import streamlit.components.v1 as components
+        components.html(canvas_html, height=420)
+
+        st.markdown("---")
+        st.markdown("#### O bien, sube una imagen de un dígito")
+        uploaded = st.file_uploader("Imagen PNG/JPG (fondo negro, trazo blanco idealmente)", type=["png","jpg","jpeg"])
+
+    with col_pred:
+        st.markdown("#### Resultado")
+
+        # Procesamiento de imagen subida
+        if uploaded is not None:
+            from PIL import Image
+            import io
+
+            img = Image.open(uploaded).convert("L")       # escala de grises
+            img_resized = img.resize((8, 8), Image.LANCZOS)
+            img_arr = np.array(img_resized, dtype=np.float64)
+
+            # Invertir si fondo blanco (el modelo espera fondo oscuro = valores bajos)
+            if img_arr.mean() > 128:
+                img_arr = 255.0 - img_arr
+
+            # Normalizar a rango 0-16 (igual que sklearn digits)
+            img_norm = (img_arr / 255.0) * 16.0
+            img_flat = img_norm.flatten().reshape(1, -1)
+
+            pred_draw = pipe.predict(img_flat)[0]
+            y_prob_draw = pipe.predict_proba(img_flat)[0] if hasattr(pipe, "predict_proba") else None
+
+            # Mostrar imagen procesada
+            fig_up, axes_up = plt.subplots(1, 2, figsize=(6, 3))
+            fig_up.patch.set_facecolor("#0d0f14")
+            axes_up[0].imshow(np.array(img), cmap="gray")
+            axes_up[0].set_title("Imagen original", color="#00d4ff", fontsize=10)
+            axes_up[0].axis("off")
+            axes_up[1].imshow(img_norm, cmap="plasma", interpolation="nearest")
+            axes_up[1].set_title("Procesada 8×8", color="#00d4ff", fontsize=10)
+            axes_up[1].axis("off")
+            for ax in axes_up: ax.set_facecolor("#0d0f14")
+            fig_up.tight_layout()
+            st.pyplot(fig_up)
+            plt.close()
+
+            st.markdown(f"""
+            <div class="pred-box">
+                <div style="color:#6b7280;font-size:0.85rem;margin-bottom:0.5rem;">PREDICCIÓN</div>
+                <div class="pred-digit" style="color:#00d4ff;">{pred_draw}</div>
+                <div class="pred-label">Modelo: {clf_name}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            if y_prob_draw is not None:
+                st.markdown("")
+                prob_df2 = pd.DataFrame({"Dígito": list(range(10)), "Prob": y_prob_draw})
+                colors_d = ["#f87171" if i != pred_draw else "#00d4ff" for i in range(10)]
+                fig_pd = go.Figure(go.Bar(
+                    x=list(range(10)), y=y_prob_draw,
+                    marker_color=colors_d,
+                    text=[f"{p:.0%}" for p in y_prob_draw],
+                    textposition="outside", textfont=dict(size=9),
+                ))
+                fig_pd.update_layout(
+                    paper_bgcolor="#0d0f14", plot_bgcolor="#0d0f14",
+                    font_color="#c8ccdc", height=240, showlegend=False,
+                    margin=dict(t=10, b=30),
+                    yaxis=dict(range=[0,1.2], gridcolor="#1e2435", title="Prob"),
+                    xaxis=dict(title="Dígito", tickmode="linear", gridcolor="#1e2435"),
+                )
+                st.plotly_chart(fig_pd, use_container_width=True)
+        else:
+            st.markdown("""
+            <div style="background:#0f1520;border:1px dashed #2d3450;border-radius:14px;padding:2.5rem;text-align:center;color:#4b5563;">
+                <div style="font-size:3rem;">✏️</div>
+                <div style="margin-top:0.8rem;font-size:0.9rem;">
+                    Dibuja en el canvas de la izquierda y presiona<br>
+                    <b style="color:#00d4ff">Analizar</b>, o sube una imagen PNG/JPG
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("")
+        st.markdown('<div class="info-card">💡 <b>Consejo:</b> El modelo fue entrenado con imágenes 8×8. Dibuja el número <b>grande, centrado y con trazo grueso</b> para obtener mejores predicciones. El canvas dibuja en blanco sobre negro, igual que el dataset de entrenamiento.</div>', unsafe_allow_html=True)
+
+
+# ═══════════════ TAB 5 — COMPARAR MODELOS ═══════════════
+with tabs[4]:
     st.markdown('<p class="sec-header">Comparación de Clasificadores</p>', unsafe_allow_html=True)
     st.markdown('<div class="info-card">Evalúa todos los clasificadores con <b>parámetros por defecto</b> y validación cruzada 5-fold. Puede tardar ~30 segundos.</div>', unsafe_allow_html=True)
 
@@ -552,8 +731,8 @@ with tabs[3]:
         st.info("Haz clic en el botón para comparar todos los modelos disponibles.")
 
 
-# ═══════════════ TAB 5 — ACERCA DEL MODELO ═══════════════
-with tabs[4]:
+# ═══════════════ TAB 6 — ACERCA DEL MODELO ═══════════════
+with tabs[5]:
     st.markdown('<p class="sec-header">Acerca del Modelo Seleccionado</p>', unsafe_allow_html=True)
 
     info = CLASSIFIERS[clf_name]
