@@ -212,9 +212,11 @@ with st.sidebar:
 
 
 # ─────────────────────────── TRAIN ───────────────────────────────────
+import json
+
 @st.cache_data
-def train_model(clf_name, params_tuple, test_size, normalize):
-    params = dict(params_tuple)
+def train_model(clf_name, params_json, test_size, normalize):
+    params = json.loads(params_json)          # tipos originales preservados
     clf_class = CLASSIFIERS[clf_name]["class"]
     clf = clf_class(**params)
 
@@ -234,13 +236,12 @@ def train_model(clf_name, params_tuple, test_size, normalize):
 
     return pipe, X_tr, X_te, y_tr, y_te, y_pred, y_prob, acc, f1, cm, rpt, cv
 
-params_key = tuple(sorted(
-    (k, str(v)) for k, v in custom_params.items()
-))
+# Serializar con json para preservar int/float/bool/None correctamente
+params_json = json.dumps(custom_params, sort_keys=True)
 
 with st.spinner("⚙️ Entrenando modelo..."):
     pipe, X_tr, X_te, y_tr, y_te, y_pred, y_prob, acc, f1, cm, rpt, cv = train_model(
-        clf_name, params_key, test_size, normalize
+        clf_name, params_json, test_size, normalize
     )
 
 
