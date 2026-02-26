@@ -196,7 +196,6 @@ with st.sidebar:
     elif clf_name == "Regresión Logística":
         custom_params["max_iter"] = st.slider("Max iteraciones", 200, 2000, 1000, 100)
         custom_params["solver"] = "lbfgs"
-        custom_params["multi_class"] = "multinomial"
     elif clf_name == "Gradient Boosting":
         custom_params["n_estimators"] = st.slider("Estimadores", 50, 300, 150, 25)
         custom_params["learning_rate"] = st.slider("Learning Rate", 0.01, 0.5, 0.1, 0.01)
@@ -502,7 +501,7 @@ with tabs[3]:
             "SVM — RBF": SVC(C=10, gamma=0.001, probability=True),
             "Random Forest": RandomForestClassifier(n_estimators=200, random_state=42),
             "KNN (k=3)": KNeighborsClassifier(n_neighbors=3, weights="distance"),
-            "Reg. Logística": LogisticRegression(max_iter=1000, solver="lbfgs", multi_class="multinomial"),
+            "Reg. Logística": LogisticRegression(max_iter=1000, solver="lbfgs"),
             "Gradient Boosting": GradientBoostingClassifier(n_estimators=100, random_state=42),
             "Naive Bayes": GaussianNB(),
         }
