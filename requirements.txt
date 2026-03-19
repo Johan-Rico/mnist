@@ -1,6 +1,6 @@
-streamlit
-streamlit-drawable-canvas
-torch
-torchvision
-numpy
-pillow
+streamlit==1.31.0
+streamlit-drawable-canvas==0.9.3
+torch==2.0.1
+torchvision==0.15.2
+numpy==1.24.4
+pillow==10.0.1
