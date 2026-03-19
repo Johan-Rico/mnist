@@ -1,14 +1,21 @@
-# main_app.py
+import streamlit as st
+from streamlit_drawable_canvas import st_canvas
 import numpy as np
-import tkinter as tk
-from PIL import Image, ImageDraw
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torchvision import datasets, transforms
+from PIL import Image
+import os
 
 # ======================
-# CNN MODEL (REAL CNN)
+# CONFIG
+# ======================
+MODEL_PATH = "mnist_cnn.pth"
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# ======================
+# CNN MODEL
 # ======================
 class CNN(nn.Module):
     def __init__(self):
@@ -30,96 +37,111 @@ class CNN(nn.Module):
         return x
 
 # ======================
-# LOAD DATA (MNIST REAL)
+# LOAD / TRAIN MODEL
 # ======================
-transform = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize((0.1307,), (0.3081,))
-])
+@st.cache_resource
+def load_or_train_model():
+    model = CNN().to(DEVICE)
 
-train_dataset = datasets.MNIST(root='./data', train=True, download=True, transform=transform)
-train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=64, shuffle=True)
+    if os.path.exists(MODEL_PATH):
+        model.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
+        model.eval()
+        return model
+
+    st.info("Entrenando modelo (solo la primera vez)... ⏳")
+
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.1307,), (0.3081,))
+    ])
+
+    train_dataset = datasets.MNIST(
+        root="./data",
+        train=True,
+        download=True,
+        transform=transform
+    )
+
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset, batch_size=64, shuffle=True
+    )
+
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+    model.train()
+
+    for epoch in range(2):  # puedes subir esto
+        for batch_idx, (data, target) in enumerate(train_loader):
+            data, target = data.to(DEVICE), target.to(DEVICE)
+
+            optimizer.zero_grad()
+            output = model(data)
+            loss = criterion(output, target)
+            loss.backward()
+            optimizer.step()
+
+            if batch_idx > 200:  # limitar tiempo
+                break
+
+    torch.save(model.state_dict(), MODEL_PATH)
+    model.eval()
+
+    st.success("Modelo entrenado y guardado ✅")
+    return model
+
+model = load_or_train_model()
 
 # ======================
-# TRAIN MODEL
+# STREAMLIT UI
 # ======================
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = CNN().to(device)
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=0.001)
+st.title("🧠 MNIST CNN - Dibuja un número")
 
-print("Training model... (1 epoch for demo)")
-model.train()
-for batch_idx, (data, target) in enumerate(train_loader):
-    data, target = data.to(device), target.to(device)
-    optimizer.zero_grad()
-    output = model(data)
-    loss = criterion(output, target)
-    loss.backward()
-    optimizer.step()
-    if batch_idx > 200:  # limit training for speed
-        break
+st.write("Dibuja un número del 0 al 9 👇")
 
-print("Training done")
+canvas_result = st_canvas(
+    fill_color="black",
+    stroke_width=15,
+    stroke_color="black",
+    background_color="white",
+    height=280,
+    width=280,
+    drawing_mode="freedraw",
+    key="canvas",
+)
 
 # ======================
-# GUI
+# PREDICTION
 # ======================
-class App:
-    def __init__(self, root):
-        self.root = root
-        self.canvas = tk.Canvas(root, width=280, height=280, bg='white')
-        self.canvas.pack()
+if canvas_result.image_data is not None:
 
-        self.button_predict = tk.Button(root, text="Predict", command=self.predict)
-        self.button_predict.pack()
+    if st.button("Predecir"):
+        img = canvas_result.image_data
 
-        self.button_clear = tk.Button(root, text="Clear", command=self.clear)
-        self.button_clear.pack()
+        # Convertir a escala de grises
+        img = Image.fromarray((img[:, :, 0]).astype("uint8"))
+        img = img.resize((28, 28))
 
-        self.label = tk.Label(root, text="Draw a digit")
-        self.label.pack()
-
-        self.image = Image.new("L", (280, 280), 255)
-        self.draw = ImageDraw.Draw(self.image)
-
-        self.canvas.bind("<B1-Motion>", self.paint)
-
-    def paint(self, event):
-        x1, y1 = (event.x - 8), (event.y - 8)
-        x2, y2 = (event.x + 8), (event.y + 8)
-        self.canvas.create_oval(x1, y1, x2, y2, fill='black')
-        self.draw.ellipse([x1, y1, x2, y2], fill=0)
-
-    def clear(self):
-        self.canvas.delete("all")
-        self.draw.rectangle([0, 0, 280, 280], fill=255)
-
-    def preprocess(self):
-        img = self.image.resize((28, 28))
         img = np.array(img)
-        img = 255 - img  # invert
+
+        # Invertir colores (fondo negro, número blanco)
+        img = 255 - img
+
+        # Normalizar
         img = img / 255.0
         img = (img - 0.1307) / 0.3081
+
+        # Tensor
         img = torch.tensor(img).float().unsqueeze(0).unsqueeze(0)
-        return img
 
-    def predict(self):
         model.eval()
-        img = self.preprocess().to(device)
         with torch.no_grad():
-            output = model(img)
-            pred = output.argmax(dim=1).item()
-        self.label.config(text=f"Prediction: {pred}")
+            output = model(img.to(DEVICE))
+            probs = torch.softmax(output, dim=1)
+            pred = torch.argmax(probs, dim=1).item()
 
-root = tk.Tk()
-root.title("MNIST CNN Classifier")
-app = App(root)
-root.mainloop()
+        st.subheader(f"🔢 Predicción: {pred}")
 
-
-# requirements.txt
-# torch
-# torchvision
-# numpy
-# pillow
+        st.write("Probabilidades:")
+        for i, p in enumerate(probs.cpu().numpy()[0]):
+            st.write(f"{i}: {p:.4f}")
